@@ -1,0 +1,16 @@
+.git
+.venv
+__pycache__
+*.pyc
+
+# Large local datasets/artifacts are mounted at runtime.
+WeaveClinc150_dataset
+WeaveClinc150_data
+data
+clinc150
+
+# Local IDE/system files
+.cursor
+.vscode
+*.pdf
+

@@ -49,3 +49,25 @@ Configure LM Studio via `.env` (or set the same variables in your shell):
 - Generator: `--train-size`, `--val-size`, `--test-size`, `--two-intent-ratio`, `--sim-min`, `--sim-max`, `--selection-method`, `--require-conjunction`, `--require-pronoun`
 - Rewrite: `--strict`, `--max-rows`, resume is automatic (see DATASET_PROCEDURE.md)
 
+## Docker + Makefile
+
+Use Docker as a wrapper for the full project lifecycle:
+
+```bash
+make docker-build
+make start
+```
+
+Separated execution commands:
+
+```bash
+make generate
+make rewrite-full
+```
+
+Quick smoke test:
+
+```bash
+make generate-smoke
+```
+
