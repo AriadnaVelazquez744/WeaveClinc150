@@ -82,12 +82,6 @@ def parse_args() -> argparse.Namespace:
         default=0.3,
     )
     parser.add_argument(
-        "--require-conjunction",
-        action="store_true",
-        default=True,
-        help="Keep only rewrites containing conjunction markers; fallback if missing",
-    )
-    parser.add_argument(
         "--strict",
         action="store_true",
         help="Fail if any row cannot be rewritten",
@@ -113,13 +107,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--lmstudio-host",
         type=str,
-        default=os.getenv("LMSTUDIO_HOST", "127.0.0.1"),
+        default=os.getenv("LMSTUDIO_HOST", "10.6.125.217"),
         help="LM Studio host/address (env: LMSTUDIO_HOST)",
     )
     parser.add_argument(
         "--lmstudio-port",
         type=int,
-        default=int(os.getenv("LMSTUDIO_PORT", "1234")),
+        default=int(os.getenv("LMSTUDIO_PORT", "8080")),
         help="LM Studio port (env: LMSTUDIO_PORT)",
     )
     parser.add_argument(
@@ -146,17 +140,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-CONJUNCTIONS = (" and ", " also ", " plus ", " as well as ", " then ")
-SPLITS = ("train", "validation", "test")
-
-
 def normalize_space(text: str) -> str:
     return " ".join(text.strip().split())
 
 
-def contains_conjunction(text: str) -> bool:
-    lower = f" {text.lower()} "
-    return any(c in lower for c in CONJUNCTIONS)
+SPLITS = ("train", "validation", "test")
 
 
 def row_signature(row: dict[str, Any]) -> str:
@@ -240,18 +228,17 @@ def first_pending_index(in_rows: list[dict[str, Any]], out_rows: list[dict[str, 
 
 
 def build_prompt(source_texts: list[str], source_intents: list[str]) -> str:
-    utterances = "\n".join(f"{i + 1}. {u}" for i, u in enumerate(source_texts))
+    utterances = "\n".join(f"{i + 1}. ({u}, {intent})" for i, (u, intent) in enumerate(zip(source_texts, source_intents)))
     intent_str = ", ".join(source_intents)
     return (
-        "You are rewriting a combined multi-intent user query.\n"
+        "You are a native English speaker. Combine the following sentences into ONE single sentence naturally.\n"
         "Rules:\n"
-        "1) Preserve ALL intents and meaning.\n"
-        "2) Make it sound natural and conversational.\n"
-        "3) Keep it as ONE user utterance.\n"
-        "4) Include a conjunction (and/also/plus/then/as well as).\n"
-        "5) Output only the rewritten utterance.\n"
+        "1) Preserve ALL intents and factual content.\n"
+        "2) Make it sound natural and conversational - as a real person would say it.\n"
+        "3) Do NOT use numbering like '1.' '2.' - output just the merged sentence.\n"
+        "4) Output ONLY the rewritten sentence, nothing else.\n"
         f"Intents: {intent_str}\n"
-        f"Source utterances:\n{utterances}\n"
+        f"Sentences to combine:\n{utterances}\n"
     )
 
 
@@ -290,7 +277,7 @@ def rewrite_text_lmstudio(
     payload: dict[str, Any] = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "You rewrite task-oriented user utterances."},
+            {"role": "system", "content": "You combine multiple user utterances into one natural sentence for intent detection training."},
             {"role": "user", "content": prompt},
         ],
         "max_tokens": max_new_tokens,
@@ -323,7 +310,6 @@ def rewrite_row(
     primary_model_label: str,
     max_new_tokens: int,
     temperature: float,
-    require_conjunction: bool,
 ) -> tuple[dict[str, Any], bool, str | None]:
     new_row = deepcopy(row)
     metadata = dict(new_row.get("metadata", {}))
@@ -351,12 +337,6 @@ def rewrite_row(
         metadata["rewrite_model"] = primary_model_label
         new_row["metadata"] = metadata
         return new_row, False, err
-
-    if require_conjunction and not contains_conjunction(rewritten_text):
-        metadata["was_rewritten"] = False
-        metadata["rewrite_model"] = primary_model_label
-        new_row["metadata"] = metadata
-        return new_row, False, "Rewrite produced text without required conjunction."
 
     if rewritten_text == normalize_space(new_row.get("text", "")):
         metadata["was_rewritten"] = False
@@ -452,10 +432,16 @@ def main() -> int:
                 primary_model_label=primary_model_label,
                 max_new_tokens=args.max_new_tokens,
                 temperature=args.temperature,
-                require_conjunction=args.require_conjunction,
             )
             stats["api_calls_this_run"] += 1
             merged.append(new_row)
+
+            original_text = in_row.get("text", "")[:60]
+            rewritten_text = new_row.get("text", "")[:60]
+            status = "OK" if ok else "FAIL"
+            print(f"[{split}] {i+1}/{len(in_rows)} | {status} | orig: \"{original_text}...\" | rewritten: \"{rewritten_text}...\"" if len(original_text) >= 60 else f"[{split}] {i+1}/{len(in_rows)} | {status} | orig: \"{original_text}\" | rewritten: \"{rewritten_text}\"")
+            if not ok and err:
+                print(f"       Error: {err}")
             out_data[split] = merged + [deepcopy(in_rows[j]) for j in range(i + 1, len(in_rows))]
             # Temporarily pad tail with input copies so file length matches input during checkpoint
             atomic_write_json(args.output_json, out_data)
