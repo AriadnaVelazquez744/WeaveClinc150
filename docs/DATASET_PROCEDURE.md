@@ -65,7 +65,7 @@ Stored as `text`, `metadata.concatenated_text`, `labels`, `source_intents`, `sou
 ## 4. Phase B: LLM rewrite (`rewrite_clinc150_multiintent.py`)
 
 - Preserves `labels`, `source_texts`, `source_intents`.
-- Sets `metadata.was_rewritten` when rewrite succeeds (conjunction + text change).
+- Sets `metadata.was_rewritten` when rewrite succeeds (text change).
 - **LM Studio** (default): OpenAI-compatible chat at `http://127.0.0.1:1234/v1` (configurable via `.env` host/port/model).
 - **Resume**: skips rows with matching signature and `was_rewritten: true`; checkpoints after each call.
 
@@ -87,6 +87,26 @@ Stored as `text`, `metadata.concatenated_text`, `labels`, `source_intents`, `sou
 
 ---
 
+## 5.1 Dataset files
+
+This repository provides the following dataset files in `WeaveClinc150_dataset/`:
+
+| File | Description |
+|------|-------------|
+| `WeaveClinc150.json` | Phase A output: 10k train / 2k val / 2k test rows. Default `--two-intent-ratio: 0.5` yields ~50% k=2 and ~50% k=3 intent blends. All concatenations include a required conjunction marker (Phase A default). |
+| `WeaveClinc150_rewritten.json` | Phase B output: LLM‑rewritten text with `rewrite_model: "qwen2.5-7b-instruct"` (lowercase). `was_rewritten: true` tracked, but conjunction no longer required for success. |
+| `WeaveClinc150_train_noisy.json` | Noisy training set: 10k rows with 1‑3 filler sentences per sample, drawn from a noise pool of 19,698 programmatic statements. |
+| `WeaveClinc150_validation_noisy.json` | Noisy validation set: 2k rows with same noise injection. |
+| `WeaveClinc150_test_noisy.json` | Noisy test set: 2k rows with same noise injection. |
+
+**Dataset structure**
+
+WeaveClinc150 provides 150 in-domain intents from CLINC150, with 2‑3 intents blended per sample across train/validation/test splits. The dataset comprises 14,000 synthetic multi‑intent samples generated through a concatenation‑first pipeline with similarity‑aware utterance selection (TF‑IDF, 1‑2 grams, L2‑normalized). Three fixed splits (10k/2k/2k) and 7,640 unique intent combinations provide a consistent testbed for evaluating models on intent detection tasks.
+
+The noisy variants (`*_noisy.json`) were created by programmatically injecting 1‑3 filler sentences per sample from a pool of 19,698 programmatic statements, enabling robustness analysis for models exposed to conversational noise.
+
+---
+
 ## 6. Relation to BlendX / BlendCLINC150
 
 **BlendX** (Li et al.) combines single-intent corpora (including CLINC150), uses concatenation-style mixing and LLM rewriting with similarity-driven selection, and releases **BlendCLINC150** as part of BlendX.
@@ -97,29 +117,8 @@ This implementation follows the **same high-level recipe** (in-domain CLINC150, 
 
 Key differences from BlendX/BlendCLINC150 in this repository:
 
-- Phase A is implemented as conjunction-based synthetic concatenations with the same split discipline, but without the generator-internal LLM rewrite (rewrite is done only in Phase B).
-- Similarity-aware utterance selection uses a TF-IDF (1-2 grams) + L2-normalized default and a configurable cosine gate; templates and filter heuristics may differ from the original releases.
-- Phase B rewrite uses a local LM Studio OpenAI-compatible endpoint and a checkpointed “rewrite-or-skip” resume strategy, rather than relying on the specific public BlendX rewriting setup.
-
-**Suggested reference (BlendX)**:
-
-- Li et al., BlendX, arXiv: [2403.18277](https://arxiv.org/abs/2403.18277).
-
-**CLINC150 (source)**:
-
-- Larson et al., EMNLP-IJCNLP 2019; data via UCI or [https://github.com/clinc/oos-eval](https://github.com/clinc/oos-eval) (CLINC150 dataset DOI: [https://doi.org/10.24432/C5MP58](https://doi.org/10.24432/C5MP58)).
+- Phase A is implemented as conjunction‑based synthetic concatenations with the same split discipline, but without the generator-internal LLM rewrite (rewrite is done only in Phase B).
+- Similarity-aware utterance selection uses a TF‑IDF (1‑2 grams) + L2‑normalized default and a configurable cosine gate; templates and filter heuristics may differ from the original releases.
+- Phase B rewrite uses a local LM Studio OpenAI‑compatible endpoint and a checkpointed "rewrite-or-skip" resume strategy, rather than relying on the specific public BlendX rewriting setup.
 
 ---
-
-## 7. Limitations
-
-- No automated guarantee that `text` entails every intent in `labels`.
-- Template `Can you {u1} and then {u2}?` may be ungrammatical for some `{u1}`.
-- Fallback rows may skip full similarity filtering.
-- Phase B quality depends on model and settings.
-
----
-
-## 8. Reproducibility
-
-Use `--seed` on the generator; record `selection-method`, `sim_min`/`sim_max`, sizes, and rewrite backend in publications.
